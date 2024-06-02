@@ -14,7 +14,8 @@ import logging
 
 from os.path import expanduser
 
-from imessage_reader import common, create_sqlite, write_excel, data_container
+# from imessage_reader import common, create_sqlite, write_excel, data_container
+from . import common, create_sqlite, write_excel, data_container
 
 
 # logging.basicConfig(level=logging.DEBUG)
@@ -38,9 +39,15 @@ class FetchData:
         "message.destination_caller_id, "
         "message.is_from_me, "
         "message.attributedBody, "
-        "message.cache_has_attachments "
-        "FROM message "
-        "JOIN handle on message.handle_id=handle.ROWID"
+        "message.cache_roomnames, "
+        "chat.display_name, "
+        "message.ROWID "
+        "FROM "
+        "message "
+        "LEFT JOIN "
+        "handle on message.handle_id=handle.ROWID "
+        "LEFT JOIN "
+        "chat ON message.cache_roomnames=chat.chat_identifier "
     )
 
     def __init__(self, db_path: str, system=None):
@@ -65,12 +72,23 @@ class FetchData:
         """
 
         rval = common.fetch_db_data(self.db_path, self.SQL_CMD)
+        # rval indices
+        # 0. text message
+        # 1. date
+        # 2. phone_number/handle_id
+        # 3. handle_service
+        # 4. destination caller id
+        # 5. message from me as 1 = from me, 0 = no
+        # 6. attributedBody (contains text if index 0 is null)
+        # 7. cache roomnames - groupchat identifier
+        # 8. group chat display name
+        # 9. message id
 
         data = []
         for row in rval:
             text = row[0]
-            if row[7] == 1:
-                text = "<Message with no text, but an attachment.>"
+            # if row[7] == 1:
+            #     text = "<Message with no text, but an attachment.>"
             # the chat.db has some weird behavior where sometimes the text value is None
             # and the text string is buried in a binary blob under the attributedBody field.
             if text is None and row[6] is not None:
@@ -96,8 +114,12 @@ class FetchData:
                     print(e)
                     sys.exit("ERROR: Can't read a message.")
 
+            recipient = row[2] if not row[8] else row[8]
+
             data.append(
-                data_container.MessageData(row[2], text, row[1], row[3], row[4], row[5])
+                data_container.MessageData(
+                    recipient, text, row[1], row[2], row[3], row[4], row[5], row[7], row[9]
+                )
             )
 
         return data
@@ -183,6 +205,8 @@ class FetchData:
         service = []
         account = []
         is_from_me = []
+        row_id = []
+        group_chat = []
 
         for data in fetched_data:
             users.append(data.user_id)
@@ -191,7 +215,9 @@ class FetchData:
             service.append(data.service)
             account.append(data.account)
             is_from_me.append(data.is_from_me)
+            group_chat.append(data.groupchat_id)
+            row_id.append(data.row_id)
 
-        data = list(zip(users, messages, dates, service, account, is_from_me))
+        data = list(zip(users, messages, dates, service, account, is_from_me, group_chat, row_id))
 
         return data
